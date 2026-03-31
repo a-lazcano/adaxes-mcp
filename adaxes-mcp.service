@@ -1,0 +1,15 @@
+[Unit]
+Description=Adaxes MCP Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/node index.js
+WorkingDirectory=/root/adaxes-mcp
+EnvironmentFile=/root/adaxes-mcp/.env
+Environment=PORT=3002
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
