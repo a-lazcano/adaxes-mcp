@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 
 const BASE_URL =
   process.env.ADAXES_BASE_URL || "https://adxs.saratoga-homes.com";
-const AUTH_HEADER = process.env.ADAXES_AUTH_HEADER || "Authorization";
+const AUTH_HEADER = process.env.ADAXES_AUTH_HEADER || "Adm-Authorization";
 const AUTH_VALUE = process.env.ADAXES_AUTH_VALUE;
 
 if (!AUTH_VALUE) {
