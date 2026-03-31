@@ -148,7 +148,7 @@ function createMcpServer() {
   });
 
   server.tool(
-    "search_user",
+    "adaxes_search_user",
     "Search Active Directory for a user via Adaxes. Provide either an employee ID or a display name (first and last).",
     {
       employee_id: z
@@ -190,7 +190,7 @@ function createMcpServer() {
   );
 
   server.tool(
-    "create_user",
+    "adaxes_create_user",
     [
       "Provision a new Active Directory user account via Adaxes.",
       "The server handles: name capitalization, phone sanitization, division-to-code mapping,",
@@ -353,10 +353,10 @@ function createMcpServer() {
   );
 
   server.tool(
-    "deprovision_user",
+    "adaxes_deprovision_user",
     [
       "Deprovision (disable) an Active Directory user account via Adaxes.",
-      "Requires the user's distinguished name (use search_user first to obtain it)",
+      "Requires the user's distinguished name (use adaxes_search_user first to obtain it)",
       "and the Zendesk ticket ID for audit tracking.",
     ].join(" "),
     {
