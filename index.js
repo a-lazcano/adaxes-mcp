@@ -132,10 +132,14 @@ function formatSearchResults(data) {
         "mobile", "telephoneNumber", "manager", "userAccountControl",
       ];
       for (const f of fields) {
-        const val = props[f];
-        if (val !== undefined && val !== null) {
-          const display = Array.isArray(val) ? val.join(", ") : val;
-          if (display !== "") lines.push(`${f}: ${display}`);
+        const raw = props[f];
+        if (raw === undefined || raw === null) continue;
+        // Unwrap: could be a plain value, an object with a .value key, or an array of either
+        const unwrap = (v) =>
+          v && typeof v === "object" && !Array.isArray(v) && "value" in v ? v.value : v;
+        const val = Array.isArray(raw) ? raw.map(unwrap).join(", ") : unwrap(raw);
+        if (val !== undefined && val !== null && val !== "") {
+          lines.push(`${f}: ${val}`);
         }
       }
       if (u.accountStatus) {
