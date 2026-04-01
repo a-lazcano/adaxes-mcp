@@ -79,6 +79,14 @@ function mapDivisionCode(division) {
   return code;
 }
 
+const SEARCH_PROPERTIES = [
+  "displayName", "distinguishedName", "givenName", "sn",
+  "sAMAccountName", "userPrincipalName", "mail",
+  "employeeNumber", "department", "division", "title",
+  "mobile", "telephoneNumber", "manager",
+  "userAccountControl",
+];
+
 function buildSearchCriteria(property, value) {
   return {
     criteria: {
@@ -102,6 +110,7 @@ function buildSearchCriteria(property, value) {
         },
       ],
     },
+    properties: SEARCH_PROPERTIES,
   };
 }
 
@@ -115,24 +124,24 @@ function formatSearchResults(data) {
 
   return users
     .map((u, i) => {
+      // Merge top-level fields with nested properties object
+      const props = { ...u, ...(u.properties || {}) };
       const lines = [`--- User ${i + 1} ---`];
-      // Extract common fields, then dump the rest
       const fields = [
         "displayName", "distinguishedName", "dn", "givenName", "sn",
-        "employeeNumber", "department", "division", "title", "mail",
-        "mobile", "manager", "userAccountControl", "sAMAccountName",
-        "userPrincipalName",
+        "sAMAccountName", "userPrincipalName", "mail",
+        "employeeNumber", "department", "division", "title",
+        "mobile", "telephoneNumber", "manager",
+        "userAccountControl",
       ];
       for (const f of fields) {
-        if (u[f] !== undefined && u[f] !== null) {
-          lines.push(`${f}: ${u[f]}`);
+        if (props[f] !== undefined && props[f] !== null && props[f] !== "") {
+          lines.push(`${f}: ${typeof props[f] === "object" ? JSON.stringify(props[f]) : props[f]}`);
         }
       }
-      // Include any remaining fields not already listed
-      for (const [k, v] of Object.entries(u)) {
-        if (!fields.includes(k) && v !== undefined && v !== null) {
-          lines.push(`${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`);
-        }
+      // Account status from top-level (always present)
+      if (u.accountStatus) {
+        lines.push(`accountStatus: ${JSON.stringify(u.accountStatus)}`);
       }
       return lines.join("\n");
     })
