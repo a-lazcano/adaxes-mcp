@@ -79,13 +79,8 @@ function mapDivisionCode(division) {
   return code;
 }
 
-const SEARCH_PROPERTIES = [
-  "displayName", "distinguishedName", "givenName", "sn",
-  "sAMAccountName", "userPrincipalName", "mail",
-  "employeeNumber", "department", "division", "title",
-  "mobile", "telephoneNumber", "manager",
-  "userAccountControl",
-];
+const SEARCH_PROPERTIES =
+  "displayName,distinguishedName,givenName,sn,sAMAccountName,userPrincipalName,mail,employeeNumber,department,division,title,mobile,telephoneNumber,manager,userAccountControl";
 
 function buildSearchCriteria(property, value) {
   return {
@@ -110,7 +105,7 @@ function buildSearchCriteria(property, value) {
         },
       ],
     },
-    properties: SEARCH_PROPERTIES,
+    select: { properties: SEARCH_PROPERTIES },
   };
 }
 
@@ -124,22 +119,25 @@ function formatSearchResults(data) {
 
   return users
     .map((u, i) => {
-      // Merge top-level fields with nested properties object
-      const props = { ...u, ...(u.properties || {}) };
       const lines = [`--- User ${i + 1} ---`];
+      // Top-level defaults (always present)
+      if (u.displayName) lines.push(`displayName: ${u.displayName}`);
+      const dn = u.distinguishedName || u.dn;
+      if (dn) lines.push(`distinguishedName: ${dn}`);
+      // Requested properties (values are arrays, unwrap single-valued)
+      const props = u.properties || {};
       const fields = [
-        "displayName", "distinguishedName", "dn", "givenName", "sn",
-        "sAMAccountName", "userPrincipalName", "mail",
+        "givenName", "sn", "sAMAccountName", "userPrincipalName", "mail",
         "employeeNumber", "department", "division", "title",
-        "mobile", "telephoneNumber", "manager",
-        "userAccountControl",
+        "mobile", "telephoneNumber", "manager", "userAccountControl",
       ];
       for (const f of fields) {
-        if (props[f] !== undefined && props[f] !== null && props[f] !== "") {
-          lines.push(`${f}: ${typeof props[f] === "object" ? JSON.stringify(props[f]) : props[f]}`);
+        const val = props[f];
+        if (val !== undefined && val !== null) {
+          const display = Array.isArray(val) ? val.join(", ") : val;
+          if (display !== "") lines.push(`${f}: ${display}`);
         }
       }
-      // Account status from top-level (always present)
       if (u.accountStatus) {
         lines.push(`accountStatus: ${JSON.stringify(u.accountStatus)}`);
       }
