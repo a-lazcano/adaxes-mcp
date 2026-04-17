@@ -31,19 +31,36 @@ const DIVISION_CODES = {
 const STAGING_OU = "OU=Staging,OU=Domain Users,DC=SARATOGA-HOMES,DC=com";
 const DEFAULT_PASSWORD = "Temp!12300";
 const DEPROVISION_COMMAND_ID = "bac40afa-9780-49ad-bf88-f5c93b45d6f3";
+const REQUEST_TIMEOUT_MS = Number(process.env.ADAXES_TIMEOUT_MS) || 30000;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
 async function adaxesRequest(path, body) {
   const url = `${BASE_URL}/restapi/api${path}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      [AUTH_HEADER]: AUTH_VALUE,
-    },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [AUTH_HEADER]: AUTH_VALUE,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(
+        `Adaxes request timed out after ${REQUEST_TIMEOUT_MS}ms: ${path}`
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const text = await response.text();
   if (!response.ok) {
