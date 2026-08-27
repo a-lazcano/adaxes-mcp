@@ -69,6 +69,16 @@ async function adaxesRequest(path, body) {
   return text ? JSON.parse(text) : null;
 }
 
+// Property values come back as a plain value, an object with a .value key, or an
+// array of either. Normalize to a scalar (or null when absent/empty).
+function unwrapProperty(raw) {
+  if (raw === undefined || raw === null) return null;
+  const one = (v) =>
+    v && typeof v === "object" && !Array.isArray(v) && "value" in v ? v.value : v;
+  const val = Array.isArray(raw) ? raw.map(one).join(", ") : one(raw);
+  return val === undefined || val === null || val === "" ? null : val;
+}
+
 function properCase(str) {
   return str
     .replace(/_/g, " ")
@@ -96,8 +106,20 @@ function mapDivisionCode(division) {
   return code;
 }
 
-const SEARCH_PROPERTIES =
-  "displayName,distinguishedName,givenName,sn,sAMAccountName,userPrincipalName,mail,employeeNumber,department,division,title,mobile,telephoneNumber,manager,userAccountControl";
+// adm-CustomAttributeText2 = "Deprovision Ticket Number"
+// adm-CustomAttributeDate2 = "User Deprovisioned On"
+// Both are stamped by the Adaxes deprovision command, as is the "Deprovisioned <date>"
+// marker in description. They are the only way to tell a deprovisioned account from one
+// the HRMS merely disabled or the Disabled Users Sweep merely moved.
+const DEPROVISION_TICKET_ATTR = "adm-CustomAttributeText2";
+const DEPROVISION_DATE_ATTR = "adm-CustomAttributeDate2";
+
+const SEARCH_PROPERTIES = [
+  "displayName", "distinguishedName", "givenName", "sn", "sAMAccountName",
+  "userPrincipalName", "mail", "employeeNumber", "department", "division", "title",
+  "mobile", "telephoneNumber", "manager", "userAccountControl", "description",
+  DEPROVISION_TICKET_ATTR, DEPROVISION_DATE_ATTR,
+].join(",");
 
 function buildSearchCriteria(property, value) {
   return {
@@ -146,22 +168,33 @@ function formatSearchResults(data) {
       const fields = [
         "givenName", "sn", "sAMAccountName", "userPrincipalName", "mail",
         "employeeNumber", "department", "division", "title",
-        "mobile", "telephoneNumber", "manager", "userAccountControl",
+        "mobile", "telephoneNumber", "manager", "userAccountControl", "description",
       ];
       for (const f of fields) {
-        const raw = props[f];
-        if (raw === undefined || raw === null) continue;
-        // Unwrap: could be a plain value, an object with a .value key, or an array of either
-        const unwrap = (v) =>
-          v && typeof v === "object" && !Array.isArray(v) && "value" in v ? v.value : v;
-        const val = Array.isArray(raw) ? raw.map(unwrap).join(", ") : unwrap(raw);
-        if (val !== undefined && val !== null && val !== "") {
-          lines.push(`${f}: ${val}`);
-        }
+        const val = unwrapProperty(props[f]);
+        if (val !== null) lines.push(`${f}: ${val}`);
       }
       if (u.accountStatus) {
         lines.push(`accountStatus: ${JSON.stringify(u.accountStatus)}`);
       }
+
+      // Deprovision state. A disabled account, and an account sitting in
+      // OU=Disabled Objects, are both produced by other processes (the HRMS disable and
+      // the Disabled Users Sweep). Only these stamps prove the deprovision command ran.
+      const deproTicket = unwrapProperty(props[DEPROVISION_TICKET_ATTR]);
+      const deproDate = unwrapProperty(props[DEPROVISION_DATE_ATTR]);
+      const deproDesc = /^\s*Deprovisioned\s+\d{8}/i.test(
+        unwrapProperty(props.description) || ""
+      );
+      lines.push(`deprovisionTicketNumber: ${deproTicket ?? "(blank)"}`);
+      lines.push(`userDeprovisionedOn: ${deproDate ?? "(blank)"}`);
+      const deprovisioned = Boolean(deproTicket || deproDate || deproDesc);
+      lines.push(
+        deprovisioned
+          ? "deprovisioned: true (Adaxes deprovision has run against this account)"
+          : "deprovisioned: false (NOT deprovisioned - disabled state and the Disabled " +
+            "Objects OU do NOT indicate otherwise; run adaxes_deprovision_user)"
+      );
       return lines.join("\n");
     })
     .join("\n\n");
@@ -177,7 +210,15 @@ function createMcpServer() {
 
   server.tool(
     "adaxes_search_user",
-    "Search Active Directory for a user via Adaxes. Provide either an employee ID or a display name (first and last).",
+    [
+      "Search Active Directory for a user via Adaxes.",
+      "Provide either an employee ID or a display name (first and last).",
+      "Returns a `deprovisioned: true/false` verdict alongside the raw stamps",
+      "(deprovisionTicketNumber, userDeprovisionedOn, description). Use that verdict:",
+      "a disabled account, and an account sitting in OU=Disabled Objects, are both",
+      "produced by the HRMS disable and the Disabled Users Sweep respectively, and mean",
+      "NOTHING about whether the account was actually offboarded.",
+    ].join(" "),
     {
       employee_id: z
         .string()
@@ -383,9 +424,14 @@ function createMcpServer() {
   server.tool(
     "adaxes_deprovision_user",
     [
-      "Deprovision (disable) an Active Directory user account via Adaxes.",
-      "Requires the user's distinguished name (use adaxes_search_user first to obtain it)",
-      "and the Zendesk ticket ID for audit tracking.",
+      "Deprovision an Active Directory user account via Adaxes: disable, randomize the",
+      "password, cancel meetings, deactivate Microsoft 365 and revoke licenses, remove",
+      "security groups, move to the Disabled Objects OU, and archive mailbox/home drive.",
+      "Requires the user's CURRENT distinguished name (use adaxes_search_user first; a",
+      "stale DN 404s if the object has already moved) and the Zendesk ticket ID for audit",
+      "tracking. Safe to re-run, including against an account that is already disabled or",
+      "already in OU=Disabled Objects. Often exceeds the 30s request timeout while still",
+      "completing server-side - on a timeout do not retry blindly, confirm via the ticket.",
     ].join(" "),
     {
       distinguished_name: z
